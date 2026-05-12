@@ -1,0 +1,14 @@
+{
+  "name": "test-addon",
+  "version": "1.0.0",
+  "packs": {
+    "bp": "packs/BP",
+    "rp": "packs/RP"
+  },
+  "entry": "src/main.ts",
+  "out": "dist",
+  "deploy": {
+    "target": "custom",
+    "customPath": "."
+  }
+}
