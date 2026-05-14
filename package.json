@@ -1,6 +1,6 @@
 {
   "name": "@keyyard/bedrock-build",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Compiler and build tooling for Minecraft Bedrock script add-ons.",
   "license": "MIT",
   "author": "Keyyard",
@@ -42,10 +42,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keyyard/create-mc-bedrock-cli.git"
+    "url": "git+https://github.com/Keyyard/bedrock-build.git"
   },
   "bugs": {
-    "url": "https://github.com/keyyard/create-mc-bedrock-cli/issues"
+    "url": "https://github.com/Keyyard/bedrock-build/issues"
   },
-  "homepage": "https://github.com/keyyard/create-mc-bedrock-cli#readme"
+  "homepage": "https://github.com/Keyyard/bedrock-build#readme"
 }
