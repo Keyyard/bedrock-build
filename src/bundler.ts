@@ -5,7 +5,7 @@ import esbuild, { type BuildContext, type BuildOptions as EsbuildOptions } from 
 import type { BedrockConfig } from "./config.js";
 import { logger } from "./logger.js";
 
-/** Modules that must NOT be bundled — Minecraft provides them at runtime. */
+/** Modules that must NOT be bundled. Minecraft provides them at runtime. */
 const MINECRAFT_EXTERNALS = [
   "@minecraft/server",
   "@minecraft/server-ui",
@@ -76,7 +76,7 @@ function formatMessages(
  * One-shot build. SPEC §5.1 step 3.
  *
  * Resolves the entry against `config.__configDir` (handled by the config
- * loader — `config.entry` is already absolute), runs esbuild, and returns
+ * loader. `config.entry` is already absolute), runs esbuild, and returns
  * timing + output path. Throws on build failure.
  */
 export async function buildBundle(
@@ -117,7 +117,7 @@ export async function buildBundle(
  * `onRebuild` after every successful rebuild (including the first). Returns
  * a disposer that tears down the context.
  *
- * Rebuild errors are logged via `logger.error` and skipped — watch must not
+ * Rebuild errors are logged via `logger.error` and skipped. watch must not
  * crash on a transient build break.
  */
 export async function buildBundleWithWatch(

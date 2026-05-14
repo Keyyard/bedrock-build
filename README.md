@@ -7,7 +7,7 @@
 
 Compiler and build tooling for Minecraft Bedrock script add-ons. Bundles a TypeScript entry through esbuild, mirrors behavior and resource packs into `dist/`, and ships hot-reload deploy + `.mcaddon` packaging.
 
-Powers the **Custom Workspace** scaffolded by [`create-mc-bedrock`](https://www.npmjs.com/package/create-mc-bedrock). You usually don't install this directly — `npx create-mc-bedrock` does it for you.
+Powers the **Custom Workspace** scaffolded by [`create-mc-bedrock`](https://www.npmjs.com/package/create-mc-bedrock). You usually don't install this directly; `npx create-mc-bedrock` does it for you.
 
 ## Install
 
@@ -49,7 +49,7 @@ my-addon/
   package.json
   tsconfig.json
   src/
-    main.ts                  ← entry — bundled into BP/scripts/main.js
+    main.ts                  ← entry; bundled into BP/scripts/main.js
   packs/
     BP/  manifest.json + behavior pack files
     RP/  manifest.json + resource pack files
@@ -79,8 +79,8 @@ Full schema reference: <https://bedrockcli.keyyard.xyz/docs/reference/config-sch
 
 ## Deploy targets
 
-- **`retail`** (Windows) — auto-detects `%LOCALAPPDATA%\Packages\Microsoft.MinecraftUWP_*\LocalState\games\com.mojang\`
-- **`custom`** — set `deploy.customPath` to any directory containing `development_behavior_packs/` and `development_resource_packs/`. Works on all platforms.
+- **`retail`** (Windows): auto-detects across six known Bedrock install layouts in priority order: the modern Minecraft Bedrock launcher (`%APPDATA%\Minecraft Bedrock\Users\Shared\games\com.mojang`), Bedrock Preview launcher, Microsoft Store UWP, UWP Beta, and both Education editions.
+- **`custom`**: set `deploy.customPath` to any directory containing `development_behavior_packs/` and `development_resource_packs/`. Works on all platforms.
 
 Mac/Linux retail deploy is on the roadmap.
 

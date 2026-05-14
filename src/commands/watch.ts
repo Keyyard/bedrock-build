@@ -31,7 +31,7 @@ function destForPackPath(
 
   const bpRel = relative(config.packs.bp, abs);
   if (bpRel && !bpRel.startsWith("..") && !bpRel.startsWith(sep + "..")) {
-    // Skip <packs.bp>/scripts/** — owned by the bundler.
+    // Skip <packs.bp>/scripts/**. owned by the bundler.
     const first = bpRel.split(/[\\/]/, 1)[0];
     if (first === "scripts") return null;
     return join(config.out, "packs", "BP", bpRel);
@@ -92,7 +92,7 @@ export async function watch(
     `Initial build in ${Date.now() - initialStart}ms (bundle ${initialBundle.elapsedMs}ms)`,
   );
 
-  // Bundler watch — emits rebuilds for any change in the source graph.
+  // Bundler watch. emits rebuilds for any change in the source graph.
   const bundlerCtx = await buildBundleWithWatch(
     config,
     { release: false },

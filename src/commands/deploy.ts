@@ -54,7 +54,7 @@ async function deployDistToTargets(
 /**
  * Resolve a pack-source path into its destination inside the deploy target.
  * Returns `null` for paths outside both pack roots or under `<packs.bp>/scripts/`
- * (owned by the bundler — bundler-rebuild path handles those separately).
+ * (owned by the bundler. bundler-rebuild path handles those separately).
  */
 function deployDestForPackPath(
   config: BedrockConfig,
@@ -121,7 +121,7 @@ export async function deploy(
   const targets = await resolveDeployTarget(config);
   logger.info(`Deploying to ${targets.root}`);
 
-  // Step 3–4: clean-slate copy of <out>/packs/{BP,RP} into target subdirs.
+  // Step 3-4: clean-slate copy of <out>/packs/{BP,RP} into target subdirs.
   await deployDistToTargets(config, targets);
   logger.success(`Deployed ${config.name} → ${targets.bp} and ${targets.rp}`);
 

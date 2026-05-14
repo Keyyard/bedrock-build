@@ -102,7 +102,7 @@ describe("deploy --watch (smoke)", () => {
     // Small delay so chokidar's initial scan completes after the initial deploy.
     await new Promise((r) => setTimeout(r, 500));
 
-    // Modify by writing again — make sure to write AFTER chokidar is ready.
+    // Modify by writing again. make sure to write AFTER chokidar is ready.
     await writeFile(srcItem, updated);
 
     const mirroredUpdated = await waitForCondition(async () => {

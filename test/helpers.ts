@@ -10,7 +10,7 @@ const FIXTURE_ROOT = join(HERE, "fixtures", "basic-addon");
 
 /**
  * Copy the `basic-addon` fixture to a fresh tmp directory and return the
- * config loaded against that copy. Tests MUST work against this copy — never
+ * config loaded against that copy. Tests MUST work against this copy. never
  * the source fixture, because builds write into `dist/`.
  */
 export async function setupFixture(): Promise<{

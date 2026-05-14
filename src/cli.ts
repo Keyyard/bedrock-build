@@ -248,7 +248,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   if (args.help) {
-    // `<command> --help` — same help text covers all commands.
+    // `<command> --help`. same help text covers all commands.
     printHelp();
     return 0;
   }

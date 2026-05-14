@@ -104,7 +104,7 @@ function zipPacks(
     archive.pipe(output);
 
     // The third argument to `.directory()` is the destination name inside the
-    // archive — yielding `<name>_BP/...` and `<name>_RP/...` entries.
+    // archive. yielding `<name>_BP/...` and `<name>_RP/...` entries.
     archive.directory(bpSrc, bpDirInZip);
     archive.directory(rpSrc, rpDirInZip);
 

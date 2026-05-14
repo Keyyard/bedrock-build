@@ -29,60 +29,114 @@ async function isDirectory(p: string): Promise<boolean> {
 }
 
 /**
- * On Windows, locate the retail Bedrock data root by globbing
- * `%LOCALAPPDATA%\Packages\Microsoft.MinecraftUWP_*\LocalState\games\com.mojang\`.
- * Returns the first match.
+ * Candidate `com.mojang` paths on Windows, in priority order. Mirrors the
+ * search list used by Microsoft's official `@minecraft/core-build-tasks`
+ * so any install layout it supports also works here.
  */
-async function findRetailComMojang(): Promise<string> {
-  if (process.platform !== "win32") {
-    throw new DeployTargetError(
-      "Retail deploy is Windows-only for v1.0. Use deploy.target='custom' instead.",
-    );
-  }
+interface PathCandidate {
+  envVar: "APPDATA" | "LOCALAPPDATA";
+  sub: string;
+  label: string;
+}
 
+const CANDIDATES: PathCandidate[] = [
+  // Modern Minecraft Bedrock launcher. Most common on new installs.
+  {
+    envVar: "APPDATA",
+    sub: "Minecraft Bedrock/Users/Shared/games/com.mojang",
+    label: "Minecraft Bedrock (launcher)",
+  },
+  {
+    envVar: "APPDATA",
+    sub: "Minecraft Bedrock Preview/Users/Shared/games/com.mojang",
+    label: "Minecraft Bedrock Preview (launcher)",
+  },
+  // Legacy Microsoft Store UWP packages.
+  {
+    envVar: "LOCALAPPDATA",
+    sub: "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/games/com.mojang",
+    label: "Minecraft (Microsoft Store UWP)",
+  },
+  {
+    envVar: "LOCALAPPDATA",
+    sub: "Packages/Microsoft.MinecraftWindowsBeta_8wekyb3d8bbwe/LocalState/games/com.mojang",
+    label: "Minecraft Beta (Microsoft Store UWP)",
+  },
+  // Education editions.
+  {
+    envVar: "LOCALAPPDATA",
+    sub: "Packages/Microsoft.MinecraftEducationEdition_8wekyb3d8bbwe/LocalState/games/com.mojang",
+    label: "Minecraft Education (UWP)",
+  },
+  {
+    envVar: "APPDATA",
+    sub: "Minecraft Education Edition/games/com.mojang",
+    label: "Minecraft Education (desktop)",
+  },
+];
+
+/**
+ * Fallback: glob `%LOCALAPPDATA%\Packages\Microsoft.MinecraftUWP_*` so an
+ * unusual publisher hash or case variant still resolves. Match is
+ * case-insensitive since Windows filenames are case-insensitive but
+ * `readdir` returns the on-disk case verbatim.
+ */
+async function findUwpFallback(): Promise<string | undefined> {
   const localAppData = process.env.LOCALAPPDATA;
-  if (!localAppData) {
-    throw new DeployTargetError(
-      "Retail deploy: %LOCALAPPDATA% is not set; cannot locate the Minecraft UWP package directory.",
-    );
-  }
+  if (!localAppData) return undefined;
 
   const packagesDir = join(localAppData, "Packages");
-  if (!(await isDirectory(packagesDir))) {
-    throw new DeployTargetError(
-      `Retail deploy: Packages directory not found at ${packagesDir}.`,
-    );
-  }
+  if (!(await isDirectory(packagesDir))) return undefined;
 
   let entries: string[];
   try {
     entries = await readdir(packagesDir);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new DeployTargetError(
-      `Retail deploy: failed to read ${packagesDir}: ${message}`,
-    );
+  } catch {
+    return undefined;
   }
 
-  const candidates = entries.filter((name) =>
-    name.startsWith("Microsoft.MinecraftUWP_"),
-  );
-
-  for (const pkg of candidates) {
+  const uwpPrefix = "microsoft.minecraftuwp_";
+  for (const name of entries) {
+    if (!name.toLowerCase().startsWith(uwpPrefix)) continue;
     const candidate = join(
       packagesDir,
-      pkg,
+      name,
       "LocalState",
       "games",
       "com.mojang",
     );
-    if (await isDirectory(candidate)) {
-      return candidate;
-    }
+    if (await isDirectory(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Locate the Bedrock `com.mojang` directory across the install layouts
+ * Microsoft ships today. Tries the priority list first, then a wildcard
+ * UWP fallback. Throws `DeployTargetError` (exit code 3) if nothing matches.
+ */
+async function findRetailComMojang(): Promise<string> {
+  if (process.platform !== "win32") {
+    throw new DeployTargetError(
+      "Retail deploy is Windows-only for v1. Set deploy.target='custom' and deploy.customPath to your Minecraft data directory.",
+    );
   }
 
+  const checked: string[] = [];
+
+  for (const c of CANDIDATES) {
+    const root = process.env[c.envVar];
+    if (!root) continue;
+    const path = join(root, c.sub);
+    checked.push(`  - ${c.label}: ${path}`);
+    if (await isDirectory(path)) return path;
+  }
+
+  const fallback = await findUwpFallback();
+  if (fallback) return fallback;
+
   throw new DeployTargetError(
-    "Retail deploy: could not locate com.mojang under any Microsoft.MinecraftUWP_* package. Is Minecraft for Windows installed?",
+    `Retail deploy: could not locate com.mojang under any known Bedrock install layout. Paths checked:\n${checked.join("\n")}\n\nIf Minecraft is installed in a non-standard location, set deploy.target='custom' and deploy.customPath in bedrock.config.json.`,
   );
 }
 

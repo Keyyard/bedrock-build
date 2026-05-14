@@ -12,7 +12,7 @@ function destRoot(config: BedrockConfig, kind: "BP" | "RP"): string {
 
 /**
  * Returns true when `relPath` (with forward or backslash separators) is the
- * top-level `scripts/` directory of a BP source tree — that path is reserved
+ * top-level `scripts/` directory of a BP source tree. that path is reserved
  * for the bundled output. SPEC §5.1 step 4 (defensive skip).
  */
 function isTopLevelScripts(relPath: string): boolean {
@@ -25,7 +25,7 @@ function isTopLevelScripts(relPath: string): boolean {
 
 /**
  * Recursively copy `srcDir` into `dstDir`, optionally skipping the top-level
- * `scripts/` directory (only used for BP). Uses Node fs/promises only — no
+ * `scripts/` directory (only used for BP). Uses Node fs/promises only. no
  * extra deps per SPEC §6.
  */
 async function copyTree(
@@ -38,7 +38,7 @@ async function copyTree(
     entries = await readdir(srcDir, { withFileTypes: true });
   } catch (err) {
     // If the source pack dir doesn't exist, the config validator would have
-    // already failed — re-throw to surface the real cause if we ever get here.
+    // already failed. re-throw to surface the real cause if we ever get here.
     throw err;
   }
 
@@ -67,7 +67,7 @@ async function copyTree(
 }
 
 /**
- * Copy pack source files into the dist tree. SPEC §5.1 steps 4–5.
+ * Copy pack source files into the dist tree. SPEC §5.1 steps 4-5.
  *
  *   `<configDir>/<packs.bp>/*` → `<out>/packs/BP/*` (excluding `scripts/`)
  *   `<configDir>/<packs.rp>/*` → `<out>/packs/RP/*`

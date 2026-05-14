@@ -28,7 +28,7 @@ describe("watch command (smoke)", () => {
     watchPromise = null;
   });
   afterEach(async () => {
-    // Trigger shutdown by raising SIGINT — the watch loop listens for it.
+    // Trigger shutdown by raising SIGINT. the watch loop listens for it.
     if (watchPromise) {
       process.emit("SIGINT");
       // Wait for the watch promise to settle so cleanup is deterministic.
