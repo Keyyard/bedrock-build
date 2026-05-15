@@ -6,11 +6,12 @@ import { build } from "./commands/build.js";
 import { watch } from "./commands/watch.js";
 import { deploy } from "./commands/deploy.js";
 import { pack } from "./commands/pack.js";
+import { folders } from "./commands/folders.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { DeployTargetError } from "./paths.js";
 import { logger, setVerbose } from "./logger.js";
 
-const KNOWN_COMMANDS = ["build", "watch", "deploy", "pack"] as const;
+const KNOWN_COMMANDS = ["build", "watch", "deploy", "pack", "folders"] as const;
 type Command = (typeof KNOWN_COMMANDS)[number];
 
 interface ParsedArgs {
@@ -37,6 +38,7 @@ Commands:
   watch               Build, then rebuild on file changes (no deploy)
   deploy              Build, then copy dist/packs to com.mojang/development_*_packs/
   pack                Build --release, then zip into .mcaddon
+  folders             Interactive picker that scaffolds canonical pack folders
 
 Global options:
   -c, --config <path>   Path to bedrock.config.json (default: ./bedrock.config.json)
@@ -52,6 +54,7 @@ Command flags:
          --release            Build in release mode before deploying
   pack   --output <path>      Override output .mcaddon path
                               (default: dist/<name>-<version>.mcaddon)
+  folders (no flags — interactive)
 `;
 
 /**
@@ -280,6 +283,9 @@ export async function main(argv: readonly string[]): Promise<number> {
         return 0;
       case "pack":
         await pack(config, args.output ? { output: args.output } : {});
+        return 0;
+      case "folders":
+        await folders(config);
         return 0;
     }
   } catch (err) {

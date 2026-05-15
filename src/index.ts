@@ -28,6 +28,15 @@ export type { DeployOptions } from "./commands/deploy.js";
 export { pack } from "./commands/pack.js";
 export type { PackOptions } from "./commands/pack.js";
 
+export {
+  folders,
+  listFolderOptions,
+  createFolders,
+  BP_FOLDERS,
+  RP_FOLDERS,
+} from "./commands/folders.js";
+export type { FolderDef, FolderOption } from "./commands/folders.js";
+
 export { loadConfig, validateConfig, ConfigError } from "./config.js";
 export type { BedrockConfig } from "./config.js";
 

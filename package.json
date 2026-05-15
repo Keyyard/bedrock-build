@@ -1,6 +1,6 @@
 {
   "name": "@keyyard/bedrock-build",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Compiler and build tooling for Minecraft Bedrock script add-ons.",
   "license": "MIT",
   "author": "Keyyard",
@@ -25,6 +25,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@clack/prompts": "^0.7.0",
     "archiver": "^7.0.0",
     "chokidar": "^4.0.0",
     "esbuild": "^0.24.0",
