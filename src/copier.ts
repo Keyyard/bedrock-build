@@ -1,13 +1,52 @@
-import { mkdir, readdir, copyFile, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { BedrockConfig } from "./config.js";
+
+/** Max concurrent file operations. Bounds I/O fan-out on asset-heavy packs. */
+const COPY_CONCURRENCY = 16;
+
+interface CopyTask {
+  src: string;
+  dst: string;
+}
 
 /**
  * Compute the destination root inside `<out>/packs/...` for a given pack type.
  */
 function destRoot(config: BedrockConfig, kind: "BP" | "RP"): string {
   return join(config.out, "packs", kind);
+}
+
+/** Normalize path separators to POSIX so src/dst trees compare by the same key. */
+function toPosix(p: string): string {
+  return p.split(sep).join("/");
+}
+
+/**
+ * Run `worker` over `items` with at most `limit` operations in flight.
+ * Resolves when all items are processed; rejects on the first worker error.
+ */
+async function runBounded<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const lanes = Math.min(limit, items.length);
+  const runners: Promise<void>[] = [];
+  for (let lane = 0; lane < lanes; lane++) {
+    runners.push(
+      (async () => {
+        while (true) {
+          const idx = next++;
+          if (idx >= items.length) break;
+          await worker(items[idx]!);
+        }
+      })(),
+    );
+  }
+  await Promise.all(runners);
 }
 
 /**
@@ -24,24 +63,18 @@ function isTopLevelScripts(relPath: string): boolean {
 }
 
 /**
- * Recursively copy `srcDir` into `dstDir`, optionally skipping the top-level
- * `scripts/` directory (only used for BP). Uses Node fs/promises only. no
- * extra deps per SPEC §6.
+ * Walk `srcDir` and append a `CopyTask` for every regular file (and resolvable
+ * symlink) into `tasks`, mirroring the tree shape under `dstDir`. Destination
+ * directories are created as the walk descends. Optionally skips the top-level
+ * `scripts/` directory (BP only). Uses Node fs/promises only (no extra deps).
  */
-async function copyTree(
+async function collectCopyTasks(
   srcDir: string,
   dstDir: string,
   skipTopLevelScripts: boolean,
+  tasks: CopyTask[],
 ): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(srcDir, { withFileTypes: true });
-  } catch (err) {
-    // If the source pack dir doesn't exist, the config validator would have
-    // already failed. re-throw to surface the real cause if we ever get here.
-    throw err;
-  }
-
+  const entries = await readdir(srcDir, { withFileTypes: true });
   await mkdir(dstDir, { recursive: true });
 
   for (const entry of entries) {
@@ -51,15 +84,15 @@ async function copyTree(
     const srcPath = join(srcDir, entry.name);
     const dstPath = join(dstDir, entry.name);
     if (entry.isDirectory()) {
-      await copyTree(srcPath, dstPath, false);
+      await collectCopyTasks(srcPath, dstPath, false, tasks);
     } else if (entry.isFile()) {
-      await copyFile(srcPath, dstPath);
+      tasks.push({ src: srcPath, dst: dstPath });
     } else if (entry.isSymbolicLink()) {
       // Resolve symlink targets to the actual file content. Bedrock packs are
       // not expected to use symlinks, but handle them defensively.
       const real = await stat(srcPath).catch(() => null);
       if (real?.isFile()) {
-        await copyFile(srcPath, dstPath);
+        tasks.push({ src: srcPath, dst: dstPath });
       }
     }
     // Sockets, FIFOs, etc. are intentionally ignored.
@@ -71,10 +104,100 @@ async function copyTree(
  *
  *   `<configDir>/<packs.bp>/*` → `<out>/packs/BP/*` (excluding `scripts/`)
  *   `<configDir>/<packs.rp>/*` → `<out>/packs/RP/*`
+ *
+ * Both pack trees are walked, then their files copied with bounded concurrency
+ * so an asset-heavy resource pack does not serialize one `copyFile` at a time.
  */
 export async function copyPackFiles(config: BedrockConfig): Promise<void> {
-  await copyTree(config.packs.bp, destRoot(config, "BP"), true);
-  await copyTree(config.packs.rp, destRoot(config, "RP"), false);
+  const tasks: CopyTask[] = [];
+  await collectCopyTasks(config.packs.bp, destRoot(config, "BP"), true, tasks);
+  await collectCopyTasks(config.packs.rp, destRoot(config, "RP"), false, tasks);
+  await runBounded(tasks, COPY_CONCURRENCY, (t) => copyFile(t.src, t.dst));
+}
+
+interface FileEntry {
+  abs: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/**
+ * Walk `root` recursively, returning a map of POSIX-normalized relative path →
+ * file metadata. A missing root yields an empty map (treated as "nothing
+ * there yet"), which is what callers want for a not-yet-created deploy target.
+ */
+async function walkFiles(root: string): Promise<Map<string, FileEntry>> {
+  const out = new Map<string, FileEntry>();
+
+  async function recurse(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // missing or unreadable dir
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await recurse(abs);
+      } else if (entry.isFile()) {
+        const st = await stat(abs);
+        out.set(toPosix(relative(root, abs)), {
+          abs,
+          size: st.size,
+          mtimeMs: st.mtimeMs,
+        });
+      } else if (entry.isSymbolicLink()) {
+        const st = await stat(abs).catch(() => null);
+        if (st?.isFile()) {
+          out.set(toPosix(relative(root, abs)), {
+            abs,
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+          });
+        }
+      }
+    }
+  }
+
+  await recurse(root);
+  return out;
+}
+
+/**
+ * Incrementally sync `srcRoot` into `dstRoot`: copy files that are new or
+ * changed (different size, or newer source mtime) and delete files present in
+ * the destination but not the source. Avoids re-copying an unchanged pack tree
+ * on every deploy. File operations run with bounded concurrency.
+ */
+export async function syncTree(srcRoot: string, dstRoot: string): Promise<void> {
+  const [srcFiles, dstFiles] = await Promise.all([
+    walkFiles(srcRoot),
+    walkFiles(dstRoot),
+  ]);
+
+  await mkdir(dstRoot, { recursive: true });
+
+  const copyTasks: CopyTask[] = [];
+  for (const [rel, s] of srcFiles) {
+    const d = dstFiles.get(rel);
+    if (!d || d.size !== s.size || s.mtimeMs > d.mtimeMs) {
+      copyTasks.push({ src: s.abs, dst: join(dstRoot, ...rel.split("/")) });
+    }
+  }
+
+  const deletions: string[] = [];
+  for (const rel of dstFiles.keys()) {
+    if (!srcFiles.has(rel)) {
+      deletions.push(join(dstRoot, ...rel.split("/")));
+    }
+  }
+
+  await runBounded(copyTasks, COPY_CONCURRENCY, async (t) => {
+    await mkdir(dirname(t.dst), { recursive: true });
+    await copyFile(t.src, t.dst);
+  });
+  await runBounded(deletions, COPY_CONCURRENCY, (p) => rm(p, { force: true }));
 }
 
 /**

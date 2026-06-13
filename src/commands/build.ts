@@ -37,12 +37,15 @@ export async function build(
     await rm(config.out, { recursive: true, force: true });
   }
 
-  const bundleResult = await buildBundle(config, { release });
+  // The bundle (→ <out>/packs/BP/scripts/) and the pack copy (everything but
+  // BP/scripts/) write disjoint subtrees, so run them concurrently.
+  const [bundleResult] = await Promise.all([
+    buildBundle(config, { release }),
+    copyPackFiles(config),
+  ]);
   logger.debug(
     `Bundled ${config.entry} → ${bundleResult.outputPath} in ${bundleResult.elapsedMs}ms`,
   );
-
-  await copyPackFiles(config);
   logger.debug(`Copied pack files to ${config.out}/packs/`);
 
   const elapsed = Date.now() - overallStart;

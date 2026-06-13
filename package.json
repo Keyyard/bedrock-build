@@ -22,6 +22,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
+    "bench": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File ../bench/run-bench.ps1",
+    "bench:bb": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:BENCH_ONLY='bedrock-build'; & ../bench/run-bench.ps1\"",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

@@ -1,11 +1,11 @@
-import { cp, mkdir, rm, copyFile, stat } from "node:fs/promises";
+import { mkdir, rm, copyFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 
 import type { BedrockConfig } from "../config.js";
 import { build } from "./build.js";
 import { buildBundleWithWatch } from "../bundler.js";
-import { copyPackFile } from "../copier.js";
+import { syncTree } from "../copier.js";
 import { resolveDeployTarget, type DeployTargets } from "../paths.js";
 import { logger } from "../logger.js";
 
@@ -24,18 +24,9 @@ function timestamp(): string {
 }
 
 /**
- * Recursively copy `<src>/*` into `<dst>/`. Creates `<dst>` if missing.
- * Node 18+'s `fs.cp` with `recursive: true` handles this directly.
- */
-async function copyTreeContents(src: string, dst: string): Promise<void> {
-  await mkdir(dst, { recursive: true });
-  await cp(src, dst, { recursive: true });
-}
-
-/**
- * Clean-slate deploy of `<out>/packs/BP|RP/` into the resolved targets.
- * Removes the target subdirs first to ensure deleted source files don't
- * linger.
+ * Deploy `<out>/packs/BP|RP/` into the resolved targets with an incremental
+ * diff: only new/changed files are copied and stale target files are removed,
+ * so a re-deploy doesn't recopy an unchanged pack tree.
  */
 async function deployDistToTargets(
   config: BedrockConfig,
@@ -44,11 +35,10 @@ async function deployDistToTargets(
   const bpSrc = join(config.out, "packs", "BP");
   const rpSrc = join(config.out, "packs", "RP");
 
-  await rm(targets.bp, { recursive: true, force: true });
-  await rm(targets.rp, { recursive: true, force: true });
-
-  await copyTreeContents(bpSrc, targets.bp);
-  await copyTreeContents(rpSrc, targets.rp);
+  await Promise.all([
+    syncTree(bpSrc, targets.bp),
+    syncTree(rpSrc, targets.rp),
+  ]);
 }
 
 /**
@@ -159,20 +149,19 @@ export async function deploy(
     kind: "add" | "change",
   ): Promise<void> => {
     try {
+      // Copy the changed source file straight to the deploy target. Watch mode
+      // never re-reads dist for pack assets, so the dist mirror is skipped.
       const dest = deployDestForPackPath(config, targets, path);
       if (dest === null) return;
-      // First update dist (per spec: dist stays consistent).
-      await copyPackFile(config, path);
-      // Then copy to the deploy target.
-      const src = path;
+      let st;
       try {
-        const st = await stat(src);
-        if (!st.isFile()) return;
+        st = await stat(path);
       } catch {
         return; // file vanished between event and copy
       }
+      if (!st.isFile()) return;
       await mkdir(dirname(dest), { recursive: true });
-      await copyFile(src, dest);
+      await copyFile(path, dest);
       logger.success(
         `[${timestamp()}] ${kind === "add" ? "added" : "updated"} ${relative(config.__configDir, path)} → target`,
       );
@@ -184,26 +173,11 @@ export async function deploy(
 
   const mirrorPackUnlink = async (path: string): Promise<void> => {
     try {
-      const distMirror = (() => {
-        const abs = resolve(path);
-        const bpRel = relative(config.packs.bp, abs);
-        if (bpRel && !bpRel.startsWith("..") && !bpRel.startsWith(sep + "..")) {
-          const first = bpRel.split(/[\\/]/, 1)[0];
-          if (first === "scripts") return null;
-          return join(config.out, "packs", "BP", bpRel);
-        }
-        const rpRel = relative(config.packs.rp, abs);
-        if (rpRel && !rpRel.startsWith("..") && !rpRel.startsWith(sep + "..")) {
-          return join(config.out, "packs", "RP", rpRel);
-        }
-        return null;
-      })();
       const targetDest = deployDestForPackPath(config, targets, path);
-      if (distMirror) await rm(distMirror, { force: true });
-      if (targetDest) await rm(targetDest, { force: true });
-      if (distMirror || targetDest) {
+      if (targetDest) {
+        await rm(targetDest, { force: true });
         logger.success(
-          `[${timestamp()}] removed ${relative(config.__configDir, path)}`,
+          `[${timestamp()}] removed ${relative(config.__configDir, path)} → target`,
         );
       }
     } catch (err) {
