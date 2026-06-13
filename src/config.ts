@@ -2,13 +2,19 @@ import { readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 
 /**
- * Schema for `bedrock.config.json`. See SPEC §3.
+ * Internal, normalized config shape used by every command. Both the legacy
+ * `bedrock.config.json` schema (SPEC §3) and the Bedrock-OSS Project Config
+ * Standard shape are normalized into this. See `normalizeRaw`.
  */
 export interface BedrockConfig {
   /** Project name, used for .mcaddon filename and manifest header.name */
   name: string;
 
-  /** Project version, used for .mcaddon filename. Must be valid semver. */
+  /**
+   * Project version, used for the .mcaddon filename. Must be valid semver.
+   * Sourced from `bedrock-cli.version` / legacy top-level `version`, falling
+   * back to the project's `package.json` version, then `"0.0.0"`.
+   */
   version: string;
 
   /** Pack source directories (resolved to absolute paths after loading). */
@@ -17,7 +23,7 @@ export interface BedrockConfig {
     rp: string;
   };
 
-  /** TS entry point for the script module (resolved to absolute path). */
+  /** TS or JS entry point for the script module (resolved to absolute path). */
   entry: string;
 
   /** Build output directory (resolved to absolute path). */
@@ -42,8 +48,9 @@ export interface BedrockConfig {
 }
 
 /**
- * Shape of a config object as it appears on disk before defaults / validation.
- * All fields are optional except `name` and `version`.
+ * Flat, legacy-shaped intermediate produced by `normalizeRaw`. Both on-disk
+ * schemas collapse to this before defaults / validation run. All fields are
+ * optional here; `applyDefaults` fills the gaps.
  */
 interface RawBedrockConfig {
   name?: unknown;
@@ -82,6 +89,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Return the first argument that is not `undefined`. */
+function pick(...vals: unknown[]): unknown {
+  for (const v of vals) {
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
 async function pathIsDirectory(p: string): Promise<boolean> {
   try {
     const s = await stat(p);
@@ -105,9 +120,65 @@ function resolveRel(base: string, p: string): string {
 }
 
 /**
- * Apply SPEC §3 defaults to a raw config object and return a fully-populated
- * BedrockConfig with absolute paths. Validation against the filesystem is a
- * separate step (see `validateConfig`).
+ * Collapse either on-disk schema into the flat `RawBedrockConfig` intermediate.
+ *
+ * Standard (Bedrock-OSS Project Config Standard) shape:
+ *   - top-level `name`, `targetVersion`
+ *   - `packs.behaviorPack` / `packs.resourcePack`
+ *   - compiler settings under a `bedrock-cli` namespace:
+ *       `bedrock-cli.{version,entry,out,deploy}`
+ *
+ * Legacy shape (SPEC §3):
+ *   - top-level `name`, `version`, `entry`, `out`, `deploy`
+ *   - `packs.bp` / `packs.rp`
+ *   - `minecraft.serverVersion`
+ *
+ * Standard locations win over legacy when both are present, so a file may mix
+ * shapes during migration without surprises.
+ */
+function normalizeRaw(parsed: Record<string, unknown>): RawBedrockConfig {
+  const ns: Record<string, unknown> = isPlainObject(parsed["bedrock-cli"])
+    ? parsed["bedrock-cli"]
+    : {};
+  const packs: Record<string, unknown> = isPlainObject(parsed.packs)
+    ? parsed.packs
+    : {};
+  const legacyMc: Record<string, unknown> = isPlainObject(parsed.minecraft)
+    ? parsed.minecraft
+    : {};
+
+  // deploy: namespace (standard) takes precedence over top-level (legacy).
+  const deployRaw = isPlainObject(ns.deploy)
+    ? ns.deploy
+    : isPlainObject(parsed.deploy)
+      ? parsed.deploy
+      : undefined;
+
+  // serverVersion hint: standard `targetVersion` -> legacy `minecraft.serverVersion`.
+  const serverVersion = pick(parsed.targetVersion, legacyMc.serverVersion);
+
+  return {
+    name: parsed.name,
+    version: pick(ns.version, parsed.version),
+    packs: {
+      bp: pick(packs.behaviorPack, packs.bp),
+      rp: pick(packs.resourcePack, packs.rp),
+    },
+    entry: pick(ns.entry, parsed.entry),
+    out: pick(ns.out, parsed.out),
+    deploy: deployRaw as RawBedrockConfig["deploy"],
+    minecraft:
+      serverVersion !== undefined
+        ? { serverVersion }
+        : undefined,
+  };
+}
+
+/**
+ * Apply defaults to a normalized config and return a fully-populated
+ * BedrockConfig with absolute paths. Filesystem validation is a separate step
+ * (see `validateConfig`). `version` and `entry` are expected to already be
+ * resolved by `loadConfig` before this runs.
  */
 function applyDefaults(raw: RawBedrockConfig, configDir: string): BedrockConfig {
   if (typeof raw.name !== "string" || raw.name.trim() === "") {
@@ -168,7 +239,7 @@ function applyDefaults(raw: RawBedrockConfig, configDir: string): BedrockConfig 
     const sv = raw.minecraft.serverVersion;
     if (sv !== undefined && typeof sv !== "string") {
       throw new ConfigError(
-        "Config validation failed: `minecraft.serverVersion` must be a string.",
+        "Config validation failed: `minecraft.serverVersion` (or `targetVersion`) must be a string.",
         2,
       );
     }
@@ -252,16 +323,94 @@ export async function validateConfig(config: BedrockConfig): Promise<void> {
 }
 
 /**
- * Load `bedrock.config.json` from `path` (defaults to `./bedrock.config.json`
- * relative to cwd), apply SPEC §3 defaults, and validate against the filesystem.
+ * Resolve the project version when the config omits it (the standard config
+ * shape has no project-version field, only `targetVersion` for the MC API):
+ * `<configDir>/package.json` version, falling back to `"0.0.0"`.
  */
-export async function loadConfig(path?: string): Promise<BedrockConfig> {
-  const configPath = path
-    ? isAbsolute(path)
-      ? path
-      : resolve(process.cwd(), path)
-    : resolve(process.cwd(), "bedrock.config.json");
+async function resolveProjectVersion(
+  rawVersion: unknown,
+  configDir: string,
+): Promise<string> {
+  if (typeof rawVersion === "string" && rawVersion.trim() !== "") {
+    return rawVersion;
+  }
+  try {
+    const pkgRaw = await readFile(resolve(configDir, "package.json"), "utf8");
+    const pkg = JSON.parse(pkgRaw) as { version?: unknown };
+    if (typeof pkg.version === "string" && pkg.version.trim() !== "") {
+      return pkg.version;
+    }
+  } catch {
+    // No package.json or unreadable: fall through to the default.
+  }
+  return "0.0.0";
+}
 
+/**
+ * Resolve the default entry when the config omits it. Probes `src/main.ts`
+ * then `src/main.js`, returning whichever exists (absolute). Falls back to the
+ * canonical `src/main.ts` so validation reports a clear, expected path.
+ */
+async function resolveDefaultEntry(configDir: string): Promise<string> {
+  const ts = resolve(configDir, "src", "main.ts");
+  if (await pathIsFile(ts)) return ts;
+  const js = resolve(configDir, "src", "main.js");
+  if (await pathIsFile(js)) return js;
+  return ts;
+}
+
+/**
+ * Heuristic: does this JSON file look like a Bedrock config? `config.json` is a
+ * generic filename other tools use, so only treat it as ours when it carries a
+ * recognizable marker.
+ */
+async function looksLikeBedrockConfig(filePath: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(await readFile(filePath, "utf8")) as unknown;
+    if (!isPlainObject(parsed)) return false;
+    if (parsed.type === "minecraftBedrock") return true;
+    if ("bedrock-cli" in parsed) return true;
+    if (isPlainObject(parsed.packs)) {
+      const p = parsed.packs;
+      if ("behaviorPack" in p || "resourcePack" in p || "bp" in p || "rp" in p) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pick the config file to load. An explicit `path` is honored verbatim.
+ * Otherwise probe the cwd: prefer the standard `config.json` (interop with
+ * bridge/Regolith/Lantern) when it exists and looks like a Bedrock config,
+ * else the legacy `bedrock.config.json`.
+ */
+async function resolveConfigPath(path?: string): Promise<string> {
+  if (path) {
+    return isAbsolute(path) ? path : resolve(process.cwd(), path);
+  }
+
+  const cwd = process.cwd();
+  const standard = resolve(cwd, "config.json");
+  const legacy = resolve(cwd, "bedrock.config.json");
+
+  const standardExists = await pathIsFile(standard);
+  const legacyExists = await pathIsFile(legacy);
+
+  if (standardExists && legacyExists) {
+    return (await looksLikeBedrockConfig(standard)) ? standard : legacy;
+  }
+  if (standardExists) return standard;
+  if (legacyExists) return legacy;
+  // Neither present: report against the standard path.
+  return standard;
+}
+
+/** Read + JSON-parse a config file into a plain object. Throws `ConfigError`. */
+async function readConfigObject(configPath: string): Promise<Record<string, unknown>> {
   let raw: string;
   try {
     raw = await readFile(configPath, "utf8");
@@ -278,21 +427,35 @@ export async function loadConfig(path?: string): Promise<BedrockConfig> {
     parsed = JSON.parse(raw);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new ConfigError(
-      `Failed to parse ${configPath} as JSON: ${message}`,
-      2,
-    );
+    throw new ConfigError(`Failed to parse ${configPath} as JSON: ${message}`, 2);
   }
 
   if (!isPlainObject(parsed)) {
-    throw new ConfigError(
-      `Config at ${configPath} must be a JSON object.`,
-      2,
-    );
+    throw new ConfigError(`Config at ${configPath} must be a JSON object.`, 2);
   }
 
+  return parsed;
+}
+
+/**
+ * Load a Bedrock config, apply defaults, and validate against the filesystem.
+ *
+ * `path` is honored verbatim when given. Otherwise the cwd is probed for
+ * `config.json` (standard) then `bedrock.config.json` (legacy). Both on-disk
+ * schemas are accepted and normalized.
+ */
+export async function loadConfig(path?: string): Promise<BedrockConfig> {
+  const configPath = await resolveConfigPath(path);
+  const parsed = await readConfigObject(configPath);
   const configDir = dirname(configPath);
-  const withDefaults = applyDefaults(parsed as RawBedrockConfig, configDir);
+
+  const flat = normalizeRaw(parsed);
+  flat.version = await resolveProjectVersion(flat.version, configDir);
+  if (!(typeof flat.entry === "string" && flat.entry.trim() !== "")) {
+    flat.entry = await resolveDefaultEntry(configDir);
+  }
+
+  const withDefaults = applyDefaults(flat, configDir);
   await validateConfig(withDefaults);
   return withDefaults;
 }

@@ -41,7 +41,7 @@ Commands:
   folders             Interactive picker that scaffolds canonical pack folders
 
 Global options:
-  -c, --config <path>   Path to bedrock.config.json (default: ./bedrock.config.json)
+  -c, --config <path>   Path to config (default: ./config.json, then ./bedrock.config.json)
   -v, --verbose         Verbose logging
   -h, --help            Show help
   --version             Show version

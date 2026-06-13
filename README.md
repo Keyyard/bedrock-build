@@ -35,7 +35,7 @@ bedrock-build pack               # release build + zip into dist/<name>-<version
 ### Global flags
 
 ```text
--c, --config <path>   Path to bedrock.config.json (default: ./bedrock.config.json)
+-c, --config <path>   Path to config (default: ./config.json, then ./bedrock.config.json)
 -v, --verbose         Verbose logging
 -h, --help            Show help
 --version             Show version
@@ -45,35 +45,40 @@ bedrock-build pack               # release build + zip into dist/<name>-<version
 
 ```text
 my-addon/
-  bedrock.config.json
+  config.json
   package.json
-  tsconfig.json
+  tsconfig.json              ← TypeScript projects only
   src/
-    main.ts                  ← entry; bundled into BP/scripts/main.js
+    main.ts                  ← entry (.ts or .js); bundled into BP/scripts/main.js
   packs/
     BP/  manifest.json + behavior pack files
     RP/  manifest.json + resource pack files
   dist/                      ← build output (gitignored)
 ```
 
-## `bedrock.config.json`
+## `config.json`
+
+bedrock-build reads the [Bedrock-OSS Project Config Standard](https://github.com/Bedrock-OSS/project-config-standard) shape, with its own settings under a `bedrock-cli` namespace:
 
 ```json
 {
+  "type": "minecraftBedrock",
   "name": "my-addon",
-  "version": "1.0.0",
-  "packs": { "bp": "packs/BP", "rp": "packs/RP" },
-  "entry": "src/main.ts",
-  "out": "dist",
-  "deploy": {
-    "target": "retail",
-    "customPath": null
-  },
-  "minecraft": {
-    "serverVersion": "1.19.0"
+  "authors": ["you"],
+  "targetVersion": "1.21.0",
+  "packs": { "behaviorPack": "packs/BP", "resourcePack": "packs/RP" },
+  "bedrock-cli": {
+    "version": "1.0.0",
+    "entry": "src/main.ts",
+    "out": "dist",
+    "deploy": { "target": "retail", "customPath": null }
   }
 }
 ```
+
+- **JavaScript or TypeScript.** Point `entry` at `src/main.js` or `src/main.ts`. If `entry` is omitted, bedrock-build probes `src/main.ts` then `src/main.js`.
+- **Project version.** Sourced from `bedrock-cli.version`, falling back to your `package.json` version.
+- **Legacy configs still work.** The older flat `bedrock.config.json` (`packs.bp`/`packs.rp`, top-level `entry`/`out`/`deploy`) is read as-is, so existing projects need no changes.
 
 Full schema reference: <https://bedrockcli.keyyard.xyz/docs/reference/config-schema>
 
@@ -89,7 +94,7 @@ Mac/Linux retail deploy is on the roadmap.
 ```typescript
 import { build, watch, deploy, pack, loadConfig } from "@keyyard/bedrock-build";
 
-const config = await loadConfig("./bedrock.config.json");
+const config = await loadConfig("./config.json");
 await build(config, { release: false, clean: true });
 ```
 
