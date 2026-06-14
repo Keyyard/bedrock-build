@@ -1,6 +1,6 @@
 {
   "name": "@keyyard/bedrock-build",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Compiler and build tooling for Minecraft Bedrock script add-ons.",
   "keywords": [
     "minecraft",
