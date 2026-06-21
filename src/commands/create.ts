@@ -68,6 +68,8 @@ function planLine(f: PlannedFile): string {
       return `  ${pc.green("create")}  ${f.relPath} ${pc.dim(`(${size})`)}`;
     case "overwrite":
       return `  ${pc.yellow("overwrite")}  ${f.relPath} ${pc.dim(`(${size})`)}`;
+    case "update":
+      return `  ${pc.cyan("update")}  ${f.relPath} ${pc.dim(`(merged, ${size})`)}`;
     case "skip":
       return `  ${pc.dim("skip")}  ${f.relPath} ${pc.dim("(unchanged)")}`;
     case "conflict":
@@ -195,10 +197,12 @@ export async function create(config: BedrockConfig, opts: CreateOptions): Promis
 function summarize(plan: readonly PlannedFile[], inter: boolean): void {
   const created = plan.filter((f) => f.status === "create").length;
   const overwritten = plan.filter((f) => f.status === "overwrite").length;
+  const updated = plan.filter((f) => f.status === "update").length;
   const skipped = plan.filter((f) => f.status === "skip").length;
   const parts: string[] = [];
   if (created) parts.push(`${created} created`);
   if (overwritten) parts.push(`${overwritten} overwritten`);
+  if (updated) parts.push(`${updated} registry updated`);
   if (skipped) parts.push(`${skipped} unchanged`);
   const msg = parts.join(", ") || "no changes";
   if (inter) p.log.success(msg);

@@ -72,7 +72,7 @@ export function mergeItemTexture(
   }
   file.texture_data[key] = { textures: texturePath };
   file.texture_data = sortKeys(file.texture_data);
-  tree.write(rel, serialize(file));
+  tree.writeMerge(rel, serialize(file));
 }
 
 /**
@@ -98,7 +98,7 @@ export function mergeTerrainTexture(
   }
   file.texture_data[key] = { textures: texturePath };
   file.texture_data = sortKeys(file.texture_data);
-  tree.write(rel, serialize(file));
+  tree.writeMerge(rel, serialize(file));
 }
 
 interface BlocksFile {
@@ -136,7 +136,7 @@ export function mergeBlocks(
 
   const sorted = sortKeys(entries);
   const out: Record<string, unknown> = { format_version: formatVersion, ...sorted };
-  tree.write(rel, serialize(out));
+  tree.writeMerge(rel, serialize(out));
 }
 
 /**
@@ -181,7 +181,7 @@ export function mergeLang(
 
   // Always terminate with a single trailing newline.
   const text = out.join("\n").replace(/\n*$/, "") + "\n";
-  tree.write(rel, text);
+  tree.writeMerge(rel, text);
 }
 
 /**
@@ -194,5 +194,5 @@ export function ensureLanguages(tree: Tree, packRel: string): void {
   const list = parseJsonOr<string[]>(tree, rel, []);
   const arr = Array.isArray(list) ? list : [];
   if (!arr.includes("en_US")) arr.push("en_US");
-  tree.write(rel, serialize(arr));
+  tree.writeMerge(rel, serialize(arr));
 }

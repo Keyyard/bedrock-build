@@ -73,8 +73,12 @@ export interface PlannedFile {
   absPath: string;
   /** The content that would be written. */
   nextContent: string;
-  /** Change classification against the current disk state. */
-  status: "create" | "skip" | "conflict" | "overwrite";
+  /**
+   * Change classification against the current disk state. `update` is reserved
+   * for shared registry/lang files: they are read-merge-write, so a differing
+   * result is an expected merge (always safe to write), never a `conflict`.
+   */
+  status: "create" | "skip" | "conflict" | "overwrite" | "update";
 }
 
 /** Result of running a generator: the planned files plus import reminders. */

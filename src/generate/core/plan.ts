@@ -3,13 +3,17 @@ import type { Tree } from "./tree.js";
 
 /**
  * Compute the change plan for a staged Tree. SPEC §3.3 (Plop's safe default):
- *   - not on disk          → create
- *   - on disk, identical   → skip  (idempotent re-run is a no-op)
- *   - on disk, differs, !force → conflict (abort whole generator, write nothing)
- *   - on disk, differs, force  → overwrite
+ *   - not on disk              → create
+ *   - on disk, identical       → skip  (idempotent re-run is a no-op)
+ *   - shared registry/lang file that differs → update (always safe to write)
+ *   - owned file differs, !force → conflict (abort whole generator, write nothing)
+ *   - owned file differs, force  → overwrite
  *
- * Registry files are merged read-modify-write before this runs, so a re-added
- * key serializes byte-identical and classifies as `skip`, never `conflict`.
+ * Registry/lang files (item_texture, terrain_texture, blocks.json, en_US.lang,
+ * languages.json) are read-merge-write: the merge already preserved every
+ * existing key, so a differing result is an expected `update`, never a
+ * `conflict`. Without this, adding the very first key into a seeded (non-empty)
+ * registry would abort every generator. Only owned feature files are gated.
  */
 export function planTree(tree: Tree, force: boolean): PlannedFile[] {
   const out: PlannedFile[] = [];
@@ -23,6 +27,8 @@ export function planTree(tree: Tree, force: boolean): PlannedFile[] {
       status = "create";
     } else if (existing === nextContent) {
       status = "skip";
+    } else if (tree.mergePaths.has(relPath)) {
+      status = "update";
     } else if (force) {
       status = "overwrite";
     } else {

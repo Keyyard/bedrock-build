@@ -17,6 +17,14 @@ export class Tree {
   /** relPath → next content (overrides disk). */
   readonly writes = new Map<string, string>();
 
+  /**
+   * Paths written via {@link writeMerge} (shared registry/lang files). These are
+   * read-merge-write, so the planner treats a differing result as an allowed
+   * `update`, never a `conflict`. Owned feature files (items, blocks, …) are NOT
+   * in this set and stay conflict-gated.
+   */
+  readonly mergePaths = new Set<string>();
+
   /** Absolute root the relative paths are anchored at (the config dir). */
   readonly rootAbs: string;
 
@@ -53,6 +61,16 @@ export class Tree {
   /** Stage a write. Replaces any prior pending write for the same path. */
   write(rel: string, content: string): void {
     this.writes.set(rel, content);
+  }
+
+  /**
+   * Stage a read-merge-write of a shared registry/lang file. Same as
+   * {@link write} but flags the path as a merge so the planner never gates it as
+   * a conflict (the merge already preserved every existing key).
+   */
+  writeMerge(rel: string, content: string): void {
+    this.writes.set(rel, content);
+    this.mergePaths.add(rel);
   }
 
   /** Stable list of staged paths (sorted for deterministic plans). */
