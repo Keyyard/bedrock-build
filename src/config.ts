@@ -1,6 +1,9 @@
 import { readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 
+import { deriveNamespace, validateNamespace } from "./generate/core/identifier.js";
+import { logger } from "./logger.js";
+
 /**
  * Internal, normalized config shape used by every command. Both the legacy
  * `bedrock.config.json` schema (SPEC §3) and the Bedrock-OSS Project Config
@@ -9,6 +12,15 @@ import { dirname, isAbsolute, resolve } from "node:path";
 export interface BedrockConfig {
   /** Project name, used for .mcaddon filename and manifest header.name */
   name: string;
+
+  /**
+   * Bedrock namespace for generated identifiers (`create:*`). SPEC §3.2:
+   * optional in config; when absent or malformed it is derived from
+   * `sanitize(name)` with a warning (NON-FATAL — never breaks build/watch/deploy
+   * for existing 2.x projects). A bad namespace is hard-rejected only at
+   * generate time, inside `create`.
+   */
+  namespace: string;
 
   /**
    * Project version, used for the .mcaddon filename. Must be valid semver.
@@ -54,6 +66,7 @@ export interface BedrockConfig {
  */
 interface RawBedrockConfig {
   name?: unknown;
+  namespace?: unknown;
   version?: unknown;
   packs?: {
     bp?: unknown;
@@ -159,6 +172,7 @@ function normalizeRaw(parsed: Record<string, unknown>): RawBedrockConfig {
 
   return {
     name: parsed.name,
+    namespace: ns.namespace,
     version: pick(ns.version, parsed.version),
     packs: {
       bp: pick(packs.behaviorPack, packs.bp),
@@ -234,6 +248,21 @@ function applyDefaults(raw: RawBedrockConfig, configDir: string): BedrockConfig 
     customPath = deployRaw.customPath;
   }
 
+  // Namespace is generator-only data and MUST be non-fatal here (SPEC §3.2):
+  // a 2.x project that omits it, or supplies a malformed one, must still
+  // build/watch/deploy. Validate-or-derive with a warn; never throw.
+  let namespace: string;
+  if (raw.namespace === undefined || raw.namespace === null) {
+    namespace = deriveNamespace(raw.name);
+  } else if (typeof raw.namespace === "string" && validateNamespace(raw.namespace) === true) {
+    namespace = raw.namespace;
+  } else {
+    namespace = deriveNamespace(raw.name);
+    logger.warn(
+      `\`bedrock-cli.namespace\` (${JSON.stringify(raw.namespace)}) is invalid; using derived "${namespace}" instead.`,
+    );
+  }
+
   let minecraft: BedrockConfig["minecraft"];
   if (isPlainObject(raw.minecraft)) {
     const sv = raw.minecraft.serverVersion;
@@ -248,6 +277,7 @@ function applyDefaults(raw: RawBedrockConfig, configDir: string): BedrockConfig 
 
   return {
     name: raw.name,
+    namespace,
     version: raw.version,
     packs: {
       bp: resolveRel(configDir, bp),

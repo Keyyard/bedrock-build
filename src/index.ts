@@ -37,6 +37,41 @@ export {
 } from "./commands/folders.js";
 export type { FolderDef, FolderOption } from "./commands/folders.js";
 
+export { create } from "./commands/create.js";
+
+export { GenerateError } from "./generate/core/errors.js";
+export type {
+  CreateType,
+  CreateOptions,
+  GeneratorResult,
+  PlannedFile,
+} from "./generate/core/types.js";
+export { CREATE_TYPES } from "./generate/core/types.js";
+
+export { planWeapon } from "./generate/weapon.js";
+export { planTool } from "./generate/tool.js";
+export { planArmor } from "./generate/armor.js";
+export { planItem } from "./generate/item.js";
+export { planEntity } from "./generate/entity.js";
+export { planBlock } from "./generate/block.js";
+
+export { Tree } from "./generate/core/tree.js";
+export { planTree, hasConflict } from "./generate/core/plan.js";
+export {
+  validateName,
+  validateIdentifier,
+  validateNamespace,
+  deriveNamespace,
+} from "./generate/core/identifier.js";
+export { deriveNames, toDisplayName, stripPng } from "./generate/core/names.js";
+export {
+  mergeItemTexture,
+  mergeTerrainTexture,
+  mergeBlocks,
+  mergeLang,
+  ensureLanguages,
+} from "./generate/core/registries.js";
+
 export { loadConfig, validateConfig, ConfigError } from "./config.js";
 export type { BedrockConfig } from "./config.js";
 
