@@ -24,7 +24,7 @@ npx create-mc-bedrock
 ## Commands
 
 ```bash
-bedrock-build build              # dev bundle into dist/
+bedrock-build build              # dev bundle + mirror packs into dist/
 bedrock-build build --release    # minified, no sourcemaps
 bedrock-build watch              # rebuild on source/pack changes
 bedrock-build deploy             # build then copy dist/packs to com.mojang/development_*_packs/

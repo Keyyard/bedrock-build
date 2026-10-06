@@ -63,56 +63,29 @@ function isTopLevelScripts(relPath: string): boolean {
 }
 
 /**
- * Walk `srcDir` and append a `CopyTask` for every regular file (and resolvable
- * symlink) into `tasks`, mirroring the tree shape under `dstDir`. Destination
- * directories are created as the walk descends. Optionally skips the top-level
- * `scripts/` directory (BP only). Uses Node fs/promises only (no extra deps).
- */
-async function collectCopyTasks(
-  srcDir: string,
-  dstDir: string,
-  skipTopLevelScripts: boolean,
-  tasks: CopyTask[],
-): Promise<void> {
-  const entries = await readdir(srcDir, { withFileTypes: true });
-  await mkdir(dstDir, { recursive: true });
-
-  for (const entry of entries) {
-    if (skipTopLevelScripts && entry.isDirectory() && entry.name === "scripts") {
-      continue;
-    }
-    const srcPath = join(srcDir, entry.name);
-    const dstPath = join(dstDir, entry.name);
-    if (entry.isDirectory()) {
-      await collectCopyTasks(srcPath, dstPath, false, tasks);
-    } else if (entry.isFile()) {
-      tasks.push({ src: srcPath, dst: dstPath });
-    } else if (entry.isSymbolicLink()) {
-      // Resolve symlink targets to the actual file content. Bedrock packs are
-      // not expected to use symlinks, but handle them defensively.
-      const real = await stat(srcPath).catch(() => null);
-      if (real?.isFile()) {
-        tasks.push({ src: srcPath, dst: dstPath });
-      }
-    }
-    // Sockets, FIFOs, etc. are intentionally ignored.
-  }
-}
-
-/**
- * Copy pack source files into the dist tree. SPEC §5.1 steps 4-5.
+ * Mirror pack source files into the dist tree. SPEC §5.1 steps 4-5.
  *
  *   `<configDir>/<packs.bp>/*` → `<out>/packs/BP/*` (excluding `scripts/`)
  *   `<configDir>/<packs.rp>/*` → `<out>/packs/RP/*`
  *
- * Both pack trees are walked, then their files copied with bounded concurrency
- * so an asset-heavy resource pack does not serialize one `copyFile` at a time.
+ * This is a **mirror**, not a copy: a file deleted or moved in the pack source
+ * is removed from dist too. Copy-only left the old path behind forever, and
+ * `deploy` then faithfully shipped both — which Bedrock loads as two
+ * definitions of the same id, one of them silently winning. Renaming a folder
+ * was enough to ship a stale item or an animation that overrode its own
+ * replacement.
+ *
+ * `<out>/packs/BP/scripts/` is exempt at both ends: the bundler owns it, and
+ * `build` runs this concurrently with the bundle write.
  */
 export async function copyPackFiles(config: BedrockConfig): Promise<void> {
-  const tasks: CopyTask[] = [];
-  await collectCopyTasks(config.packs.bp, destRoot(config, "BP"), true, tasks);
-  await collectCopyTasks(config.packs.rp, destRoot(config, "RP"), false, tasks);
-  await runBounded(tasks, COPY_CONCURRENCY, (t) => copyFile(t.src, t.dst));
+  await Promise.all([
+    syncTree(config.packs.bp, destRoot(config, "BP"), {
+      skipSource: isTopLevelScripts,
+      keepInDest: isTopLevelScripts,
+    }),
+    syncTree(config.packs.rp, destRoot(config, "RP")),
+  ]);
 }
 
 interface FileEntry {
@@ -164,13 +137,32 @@ async function walkFiles(root: string): Promise<Map<string, FileEntry>> {
   return out;
 }
 
+export interface SyncTreeOptions {
+  /**
+   * Source paths to leave out of the mirror entirely, by POSIX-normalized
+   * relative path. Used to hand a subtree to another writer.
+   */
+  skipSource?: (relPath: string) => boolean;
+
+  /**
+   * Destination paths this sync must never delete, by POSIX-normalized
+   * relative path. Anything written by someone else — the script bundle —
+   * belongs here, or the mirror would treat it as stale and remove it.
+   */
+  keepInDest?: (relPath: string) => boolean;
+}
+
 /**
  * Incrementally sync `srcRoot` into `dstRoot`: copy files that are new or
  * changed (different size, or newer source mtime) and delete files present in
  * the destination but not the source. Avoids re-copying an unchanged pack tree
  * on every deploy. File operations run with bounded concurrency.
  */
-export async function syncTree(srcRoot: string, dstRoot: string): Promise<void> {
+export async function syncTree(
+  srcRoot: string,
+  dstRoot: string,
+  options: SyncTreeOptions = {},
+): Promise<void> {
   const [srcFiles, dstFiles] = await Promise.all([
     walkFiles(srcRoot),
     walkFiles(dstRoot),
@@ -180,6 +172,7 @@ export async function syncTree(srcRoot: string, dstRoot: string): Promise<void> 
 
   const copyTasks: CopyTask[] = [];
   for (const [rel, s] of srcFiles) {
+    if (options.skipSource?.(rel)) continue;
     const d = dstFiles.get(rel);
     if (!d || d.size !== s.size || s.mtimeMs > d.mtimeMs) {
       copyTasks.push({ src: s.abs, dst: join(dstRoot, ...rel.split("/")) });
@@ -188,6 +181,7 @@ export async function syncTree(srcRoot: string, dstRoot: string): Promise<void> 
 
   const deletions: string[] = [];
   for (const rel of dstFiles.keys()) {
+    if (options.keepInDest?.(rel)) continue;
     if (!srcFiles.has(rel)) {
       deletions.push(join(dstRoot, ...rel.split("/")));
     }

@@ -1,6 +1,6 @@
 {
   "name": "@keyyard/bedrock-build",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Compiler and build tooling for Minecraft Bedrock script add-ons.",
   "keywords": [
     "minecraft",
@@ -32,6 +32,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

@@ -43,6 +43,49 @@ describe("copyPackFiles", () => {
     expect((await stat(rpManifest)).isFile()).toBe(true);
     expect((await stat(rpTex)).isFile()).toBe(true);
   });
+
+  it("prunes dist files whose pack source is gone, but keeps BP scripts/", async () => {
+    await copyPackFiles(fixture.config);
+
+    const distBp = join(fixture.root, "dist", "packs", "BP");
+    const distRp = join(fixture.root, "dist", "packs", "RP");
+
+    // Stands in for a renamed folder: the old path is still in dist, and
+    // Bedrock loads it as a second definition of the same id.
+    const stale = join(distBp, "items", "old_location.item.json");
+    await writeFile(stale, "{}", "utf8");
+
+    const staleTexture = join(distRp, "textures", "removed.png");
+    await writeFile(staleTexture, "x", "utf8");
+
+    // The bundler's output. `build` writes it concurrently with this copy, and
+    // it has no counterpart in the pack source.
+    const bundle = join(distBp, "scripts", "main.js");
+    await mkdir(join(distBp, "scripts"), { recursive: true });
+    await writeFile(bundle, "// bundled", "utf8");
+
+    await copyPackFiles(fixture.config);
+
+    await expect(stat(stale)).rejects.toThrow();
+    await expect(stat(staleTexture)).rejects.toThrow();
+
+    expect(await readFile(bundle, "utf8")).toBe("// bundled");
+    expect(
+      (await stat(join(distBp, "items", "example.item.json"))).isFile(),
+    ).toBe(true);
+  });
+
+  it("leaves a pack's own scripts/ out of dist", async () => {
+    const bpScripts = join(fixture.config.packs.bp, "scripts");
+    await mkdir(bpScripts, { recursive: true });
+    await writeFile(join(bpScripts, "hand_written.js"), "// nope", "utf8");
+
+    await copyPackFiles(fixture.config);
+
+    await expect(
+      stat(join(fixture.root, "dist", "packs", "BP", "scripts", "hand_written.js")),
+    ).rejects.toThrow();
+  });
 });
 
 describe("syncTree (incremental deploy)", () => {
